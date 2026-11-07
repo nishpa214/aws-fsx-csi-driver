@@ -22,8 +22,8 @@ import (
 
 	sanity "github.com/kubernetes-csi/csi-test/pkg/sanity"
 
-	"github.com/kubernetes-sigs/aws-fsx-csi-driver/pkg/driver"
-	"github.com/kubernetes-sigs/aws-fsx-csi-driver/pkg/util"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/driver"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/util"
 )
 
 const (
@@ -41,6 +41,7 @@ func TestSanity(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	Expect(os.Setenv("CSI_NODE_NAME", "fake-node")).To(Succeed())
 	fsxDriver = driver.NewFakeDriver(endpoint)
 	go func() {
 		Expect(fsxDriver.Run()).NotTo(HaveOccurred())
@@ -53,12 +54,17 @@ var _ = AfterSuite(func() {
 })
 
 var _ = Describe("AWS FSx for Lustre CSI Driver", func() {
-	_ = os.MkdirAll("/tmp/csi", os.ModePerm)
 	config := &sanity.Config{
 		Address:        endpoint,
 		TargetPath:     mountPath,
 		StagingPath:    stagePath,
 		TestVolumeSize: 2000 * util.GiB,
+		CreateTargetDir: func(path string) (string, error) {
+			return path, os.MkdirAll(path, os.ModePerm)
+		},
+		CreateStagingDir: func(path string) (string, error) {
+			return path, os.MkdirAll(path, os.ModePerm)
+		},
 	}
 	sanity.GinkgoTest(config)
 })

@@ -3,20 +3,19 @@ on:
   push:
     # Sequence of patterns matched against refs/tags
     tags:
-      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+      - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
 jobs:
   build:
+    permissions:
+      contents: write # Needed for creating and editing releases
     name: Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v1
-      - name: Create Helm chart
-        run: |
-          tar cvzf helm-chart.tgz helm
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Create Release
         id: create-release
-        uses: actions/create-release@v1
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -28,13 +27,3 @@ jobs:
             See [CHANGELOG](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/blob/master/CHANGELOG-0.x.md) for full list of changes
           draft: false
           prerelease: false
-      - name: Upload Release Asset
-        id: upload-release-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: ./helm-chart.tgz
-          asset_name: helm-chart.tgz
-          asset_content_type: application/gzip

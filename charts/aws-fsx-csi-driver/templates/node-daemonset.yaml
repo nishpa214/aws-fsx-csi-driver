@@ -1,0 +1,194 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fsx-csi-node
+  labels:
+    {{- include "aws-fsx-csi-driver.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: fsx-csi-node
+      {{- include "aws-fsx-csi-driver.selectorLabels" . | nindent 6 }}
+  {{- with .Values.node.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      {{- with .Values.node.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app: fsx-csi-node
+        {{- include "aws-fsx-csi-driver.labels" . | nindent 8 }}
+        {{- if .Values.node.podLabels }}
+          {{- toYaml .Values.node.podLabels | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+      {{- range .Values.imagePullSecrets }}
+        - name: {{ . }}
+      {{- end }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        {{- with .Values.node.nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      dnsPolicy: {{ .Values.node.dnsPolicy }}
+      {{- with .Values.node.dnsConfig }}
+      dnsConfig: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.node.serviceAccount.name }}
+      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriodSeconds }}
+      priorityClassName: {{ .Values.node.priorityClassName }}
+      tolerations:
+        {{- if .Values.node.tolerateAllTaints }}
+        - operator: Exists
+          {{- else }}
+          {{- with .Values.node.tolerations }}
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        - key: "fsx.csi.aws.com/agent-not-ready"
+          operator: "Exists"
+          {{- end }}
+      {{- with .Values.node.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.node.lustreClientInstaller.enabled }}
+      initContainers:
+        - name: lustre-client-installer
+          image: {{ printf "%s%s:%s" (default "" .Values.image.containerRegistry) .Values.node.lustreClientInstaller.image.repository .Values.node.lustreClientInstaller.image.tag }}
+          imagePullPolicy: {{ .Values.node.lustreClientInstaller.image.pullPolicy }}
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              if chroot /host test -x /usr/sbin/lctl; then
+                echo "Lustre client userspace already installed"
+              elif chroot /host grep -q "Amazon Linux 2023" /etc/os-release; then
+                chroot /host dnf install -y lustre-client
+              elif chroot /host grep -q "Amazon Linux 2" /etc/os-release; then
+                chroot /host amazon-linux-extras install -y lustre
+              else
+                echo "Non-AL based distro, no need to install userspace"
+              fi
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+      {{- end }}
+      containers:
+        - name: fsx-plugin
+          securityContext:
+            privileged: true
+          image: {{ printf "%s%s:%s" (default "" .Values.image.containerRegistry) .Values.image.repository (default (printf "v%s" .Chart.AppVersion) (.Values.image.tag | toString)) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --mode={{ .Values.node.mode }}
+            - --endpoint=$(CSI_ENDPOINT)
+            - --logging-format={{ .Values.node.loggingFormat }}
+            - --v={{ .Values.node.logLevel }}
+            {{- with .Values.node.forcefulUnmountTimeout }}
+            - --forceful-unmount-timeout={{ . }}
+            {{- end }}
+            {{- with .Values.node.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:/csi/csi.sock
+            - name: CSI_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+              {{- with .Values.node.region }}
+            - name: AWS_REGION
+              value: {{ . }}
+              {{- end }}
+          volumeMounts:
+            - name: kubelet-dir
+              mountPath: {{ .Values.node.kubeletPath }}
+              mountPropagation: "Bidirectional"
+            - name: plugin-dir
+              mountPath: /csi
+          ports:
+            - name: healthz
+              containerPort: 9810
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 2
+            failureThreshold: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: [ "/bin/aws-fsx-csi-driver", "pre-stop-hook" ]
+          {{- with .Values.node.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: node-driver-registrar
+          image: {{ printf "%s%s:%s" (default "" .Values.image.containerRegistry) .Values.sidecars.nodeDriverRegistrar.image.repository .Values.sidecars.nodeDriverRegistrar.image.tag }}
+          imagePullPolicy: {{ .Values.sidecars.nodeDriverRegistrar.image.pullPolicy }}
+          args:
+            - --csi-address=$(ADDRESS)
+            - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+            - --v={{ .Values.sidecars.nodeDriverRegistrar.logLevel }}
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: {{ .Values.node.kubeletPath }}/plugins/fsx.csi.aws.com/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+          {{- with default .Values.node.resources .Values.sidecars.nodeDriverRegistrar.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: liveness-probe
+          image: {{ printf "%s%s:%s" (default "" .Values.image.containerRegistry) .Values.sidecars.livenessProbe.image.repository .Values.sidecars.livenessProbe.image.tag }}
+          imagePullPolicy: {{ .Values.sidecars.livenessProbe.image.pullPolicy }}
+          args:
+            - --csi-address=/csi/csi.sock
+            - --health-port=9810
+          volumeMounts:
+            - mountPath: /csi
+              name: plugin-dir
+          {{- with default .Values.node.resources .Values.sidecars.livenessProbe.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: kubelet-dir
+          hostPath:
+            path: {{ .Values.node.kubeletPath }}
+            type: Directory
+        - name: registration-dir
+          hostPath:
+            path: {{ .Values.node.kubeletPath }}/plugins_registry/
+            type: Directory
+        - name: plugin-dir
+          hostPath:
+            path: {{ .Values.node.kubeletPath }}/plugins/fsx.csi.aws.com/
+            type: DirectoryOrCreate
+        {{- if .Values.node.lustreClientInstaller.enabled }}
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+        {{- end }}

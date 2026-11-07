@@ -18,29 +18,86 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"time"
+
+	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/cloud"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/driver/internal"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/util"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/klog"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 )
 
 var (
 	nodeCaps = []csi.NodeServiceCapability_RPC_Type{}
+
+	// taintRemovalBackoff is the exponential backoff configuration for node taint removal
+	taintRemovalBackoff = wait.Backoff{
+		Duration: 500 * time.Millisecond,
+		Factor:   2,
+		Steps:    10, // Max delay = 0.5 * 2^9 = ~4 minutes
+	}
 )
 
-func (d *Driver) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+// VolumeOperationAlreadyExists is message fmt returned to CO when there is another in-flight call on the given rpcKey
+const VolumeOperationAlreadyExists = "An operation with the given volume=%q and target=%q is already in progress"
+
+type nodeService struct {
+	mounter       Mounter
+	inFlight      *internal.InFlight
+	driverOptions *DriverOptions
+	csi.UnimplementedNodeServer
+}
+
+func newNodeService(driverOptions *DriverOptions) nodeService {
+	klog.V(5).InfoS("[Debug] Retrieving node info from metadata service")
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		klog.InfoS("newNodeService: getting region from metadata")
+		metadata, err := cloud.NewMetadataService(cloud.DefaultEC2MetadataClient, cloud.DefaultKubernetesAPIClient, region)
+		if err != nil {
+			panic(err)
+		}
+		region = metadata.GetRegion()
+	}
+
+	klog.InfoS("regionFromSession Node service", "region", region)
+
+	nodeMounter, err := newNodeMounter()
+	if err != nil {
+		panic(err)
+	}
+
+	// Remove taint from node to indicate driver startup success
+	// This is done in the background as a goroutine to allow for driver startup
+	go removeTaintInBackground(cloud.DefaultKubernetesAPIClient, removeNotReadyTaint)
+
+	return nodeService{
+		mounter:       nodeMounter,
+		inFlight:      internal.NewInFlight(),
+		driverOptions: driverOptions,
+	}
+}
+
+func (d *nodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (d *Driver) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+func (d *nodeService) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (d *Driver) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
-	klog.V(4).Infof("NodePublishVolume: called with args %+v", req)
+func (d *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+	klog.V(4).InfoS("NodePublishVolume: called with", "args", util.SanitizeRequest(req))
 
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -71,9 +128,19 @@ func (d *Driver) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolu
 		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
 	}
 
-	if !d.isValidVolumeCapabilities([]*csi.VolumeCapability{volCap}) {
+	if !isValidVolumeCapabilities([]*csi.VolumeCapability{volCap}) {
 		return nil, status.Error(codes.InvalidArgument, "Volume capability not supported")
 	}
+
+	rpcKey := fmt.Sprintf("%s-%s", volumeID, target)
+
+	if ok := d.inFlight.Insert(rpcKey); !ok {
+		return nil, status.Errorf(codes.Aborted, VolumeOperationAlreadyExists, volumeID, target)
+	}
+	defer func() {
+		klog.V(4).InfoS("NodePublishVolume: volume operation finished", "rpcKey", rpcKey)
+		d.inFlight.Delete(rpcKey)
+	}()
 
 	mountOptions := []string{}
 	if req.GetReadonly() {
@@ -95,22 +162,30 @@ func (d *Driver) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolu
 			}
 		}
 	}
-	klog.V(5).Infof("NodePublishVolume: creating dir %s", target)
+	klog.V(5).InfoS("NodePublishVolume: creating", "dir", target)
 	if err := d.mounter.MakeDir(target); err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not create dir %q: %v", target, err)
 	}
 
-	klog.V(5).Infof("NodePublishVolume: mounting %s at %s with options %v", source, target, mountOptions)
-	if err := d.mounter.Mount(source, target, "lustre", mountOptions); err != nil {
-		os.Remove(target)
-		return nil, status.Errorf(codes.Internal, "Could not mount %q at %q: %v", source, target, err)
+	//Checking if the target directory is already mounted with a volume.
+	mounted, err := d.isMounted(source, target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not check if %q is mounted: %v", target, err)
+	}
+	if !mounted {
+		klog.V(4).InfoS("NodePublishVolume: mounting", "source", source, "target", target, "mountOptions", mountOptions)
+		if err := d.mounter.Mount(source, target, "lustre", mountOptions); err != nil {
+			os.Remove(target)
+			return nil, status.Errorf(codes.Internal, "Could not mount %q at %q: %v", source, target, err)
+		}
+		klog.V(5).InfoS("NodePublishVolume: was mounted", "target", target)
 	}
 
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (d *Driver) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
-	klog.V(4).Infof("NodeUnpublishVolume: called with args %+v", req)
+func (d *nodeService) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+	klog.V(4).InfoS("NodeUnpublishVolume: called", "args", util.SanitizeRequest(req))
 
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -121,25 +196,40 @@ func (d *Driver) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublish
 		return nil, status.Error(codes.InvalidArgument, "Target path not provided")
 	}
 
-	klog.V(5).Infof("NodeUnpublishVolume: unmounting %s", target)
-	err := d.mounter.Unmount(target)
-	if err != nil {
+	rpcKey := fmt.Sprintf("%s-%s", volumeID, target)
+	if ok := d.inFlight.Insert(rpcKey); !ok {
+		return nil, status.Errorf(codes.Aborted, VolumeOperationAlreadyExists, volumeID, target)
+	}
+	defer func() {
+		klog.V(4).InfoS("NodeUnpublishVolume: volume operation finished", "rpcKey", rpcKey)
+		d.inFlight.Delete(rpcKey)
+	}()
+
+	// Check if the target is mounted before unmounting
+	notMnt, _ := d.mounter.IsLikelyNotMountPoint(target)
+	if notMnt {
+		klog.V(5).InfoS("NodeUnpublishVolume: target path not mounted, skipping unmount", "target", target)
+		return &csi.NodeUnpublishVolumeResponse{}, nil
+	}
+
+	klog.V(5).InfoS("NodeUnpublishVolume: unmounting", "target", target)
+	if err := d.unmount(target); err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not unmount %q: %v", target, err)
 	}
 
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (d *Driver) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+func (d *nodeService) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (d *Driver) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+func (d *nodeService) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (d *Driver) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
-	klog.V(4).Infof("NodeGetCapabilities: called with args %+v", req)
+func (d *nodeService) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+	klog.V(4).InfoS("NodeGetCapabilities: called", "args", util.SanitizeRequest(req))
 	var caps []*csi.NodeServiceCapability
 	for _, cap := range nodeCaps {
 		c := &csi.NodeServiceCapability{
@@ -154,10 +244,274 @@ func (d *Driver) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabi
 	return &csi.NodeGetCapabilitiesResponse{Capabilities: caps}, nil
 }
 
-func (d *Driver) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
-	klog.V(4).Infof("NodeGetInfo: called with args %+v", req)
+func (d *nodeService) NodeGetInfo(ctx context.Context, _ *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+	if id := os.Getenv("CSI_NODE_NAME"); id != "" {
+		klog.InfoS("NodeGetInfo: Got CSI_NODE_NAME from env", "CSI_NODE_NAME", id)
+		return &csi.NodeGetInfoResponse{NodeId: id}, nil
+	}
+
+	klog.InfoS("NodeGetInfo: get node name from metadata")
+	region := os.Getenv("AWS_REGION")
+	metadata, err := cloud.NewMetadataService(cloud.DefaultEC2MetadataClient, cloud.DefaultKubernetesAPIClient, region)
+	if err != nil {
+		panic(err)
+	}
 
 	return &csi.NodeGetInfoResponse{
-		NodeId: d.nodeID,
+		NodeId: metadata.GetInstanceID(),
 	}, nil
+}
+
+// unmountPollInterval is how often unmount re-checks whether the target stopped
+// being a mount point while a normal unmount is still in flight. The umount(8)
+// child can block in the kernel long after the filesystem has actually been
+// detached, so polling is what lets us release the per-volume in-flight lock
+// instead of waiting on a process that may never exit.
+//
+// A var rather than a const so tests can shorten it.
+var unmountPollInterval = 5 * time.Second
+
+// unmount performs an unmount of the given target path.
+//   - forcefulUnmountTimeout == 0: skip normal unmount entirely and run umount -f
+//     directly. Use this to verify that force unmount works end-to-end.
+//   - forcefulUnmountTimeout > 0: run normal unmount in a goroutine, poll to see
+//     if the mount point disappeared, and escalate to umount -f if the timeout
+//     elapses.
+//   - forcefulUnmountTimeout < 0 (feature disabled): plain blocking Unmount.
+//
+// Every path is bounded: unmount never blocks its caller on a syscall that has
+// no timeout, because the caller holds the per-volume in-flight lock and a
+// permanent block there wedges the volume for the lifetime of the driver pod.
+func (d *nodeService) unmount(target string) error {
+	timeout := d.driverOptions.forcefulUnmountTimeout
+
+	if timeout < 0 {
+		return d.mounter.Unmount(target)
+	}
+
+	if timeout == 0 {
+		klog.InfoS("NodeUnpublishVolume: forceful-unmount-timeout=0, going straight to forced unmount", "target", target)
+		// A zero umountTimeout makes UnmountWithForce's internal normal-unmount
+		// attempt expire immediately, so it escalates straight to umount -f.
+		return d.forceUnmount(target, 0, unmountPollInterval)
+	}
+
+	// The mount point may already be gone; skip the goroutine and the wait.
+	if d.targetUnmounted(target) {
+		return nil
+	}
+
+	// Run the normal unmount in the background; it may hang.
+	done := make(chan error, 1)
+	go func() {
+		done <- d.mounter.Unmount(target)
+	}()
+
+	ticker := time.NewTicker(unmountPollInterval)
+	defer ticker.Stop()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			return err
+
+		case <-ticker.C:
+			if d.targetUnmounted(target) {
+				return nil
+			}
+
+		case <-timer.C:
+			klog.InfoS("NodeUnpublishVolume: unmount timed out, retrying with forced unmount", "target", target, "timeout", timeout)
+			return d.forceUnmount(target, timeout, timeout)
+		}
+	}
+}
+
+// targetUnmounted reports whether target has stopped being a mount point, either
+// because it was unmounted or because the directory itself is gone. A missing
+// target is success: kubelet removes the target directory after a successful
+// NodeUnpublishVolume, and some filesystems (Lustre among them) tear down the
+// mount namespace entry before the umount syscall returns.
+func (d *nodeService) targetUnmounted(target string) bool {
+	notMnt, err := d.mounter.IsLikelyNotMountPoint(target)
+	if err == nil && notMnt {
+		klog.V(4).InfoS("NodeUnpublishVolume: target is no longer a mount point, treating unmount as successful", "target", target)
+		return true
+	}
+	// IsLikelyNotMountPoint stats the path, so a vanished target surfaces as
+	// (true, ENOENT) rather than (true, nil). Log this louder than the plain
+	// case: the directory disappearing out from under us is unusual.
+	if os.IsNotExist(err) {
+		klog.InfoS("NodeUnpublishVolume: target path no longer exists, treating unmount as successful", "target", target)
+		return true
+	}
+	return false
+}
+
+// forceUnmount runs mounter.UnmountWithForce, which upstream implements with an
+// uninterruptible exec.Command("umount", "-f", ...) — no context, no deadline.
+// The whole point of this code path is that umount can block forever, so we run
+// it in its own goroutine and give up waiting after graceTimeout. The goroutine
+// (and its umount child) is deliberately left running: it may still succeed, and
+// abandoning it is what lets the caller release the per-volume lock so kubelet
+// can retry instead of the volume staying wedged.
+func (d *nodeService) forceUnmount(target string, umountTimeout, graceTimeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- d.mounter.UnmountWithForce(target, umountTimeout)
+	}()
+
+	timer := time.NewTimer(graceTimeout)
+	defer timer.Stop()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			klog.ErrorS(err, "NodeUnpublishVolume: forced unmount failed", "target", target)
+			return err
+		}
+		klog.InfoS("NodeUnpublishVolume: forced unmount succeeded", "target", target)
+		return nil
+
+	case <-timer.C:
+		// Check once more: the filesystem may be detached even though umount has
+		// not returned.
+		if d.targetUnmounted(target) {
+			return nil
+		}
+		return fmt.Errorf("forced unmount of %q did not complete within %v; abandoning it so the volume is not held indefinitely", target, graceTimeout)
+	}
+}
+
+// isMounted checks if target is mounted. It does NOT return an error if target
+// doesn't exist.
+func (d *nodeService) isMounted(_ string, target string) (bool, error) {
+	/*
+		Checking if it's a mount point using IsLikelyNotMountPoint. There are three different return values,
+		1. true, err when the directory does not exist or corrupted.
+		2. false, nil when the path is already mounted with a device.
+		3. true, nil when the path is not mounted with any device.
+	*/
+	klog.V(4).InfoS(target)
+	notMnt, err := d.mounter.IsLikelyNotMountPoint(target)
+	if err != nil && !os.IsNotExist(err) {
+		//Checking if the path exists and error is related to Corrupted Mount, in that case, the system could unmount and mount.
+		_, pathErr := d.mounter.PathExists(target)
+		if pathErr != nil && d.mounter.IsCorruptedMnt(pathErr) {
+			klog.V(4).InfoS("NodePublishVolume: Target path is a corrupted mount. Trying to unmount.", "target", target)
+			// Go through d.unmount, not mounter.Unmount: this runs while the
+			// publish in-flight lock is held, so it needs the same timeout and
+			// forced-unmount escalation that NodeUnpublishVolume gets. A corrupted
+			// mount is exactly the case where a bare unmount is liable to hang.
+			if mntErr := d.unmount(target); mntErr != nil {
+				return false, status.Errorf(codes.Internal, "Unable to unmount the target %q : %v", target, mntErr)
+			}
+			//After successful unmount, the device is ready to be mounted.
+			return false, nil
+		}
+		return false, status.Errorf(codes.Internal, "Could not check if %q is a mount point: %v, %v", target, err, pathErr)
+	}
+
+	// Do not return os.IsNotExist error. Other errors were handled above.  The
+	// Existence of the target should be checked by the caller explicitly and
+	// independently because sometimes prior to mount it is expected not to exist
+	// (in Windows, the target must NOT exist before a symlink is created at it)
+	// and in others it is an error (in Linux, the target mount directory must
+	// exist before mount is called on it)
+	if err != nil && os.IsNotExist(err) {
+		klog.V(5).InfoS("[Debug] NodePublishVolume: Target path does not exist", "target", target)
+		return false, nil
+	}
+
+	if !notMnt {
+		klog.V(4).InfoS("NodePublishVolume: Target path is already mounted", "target", target)
+	}
+
+	return !notMnt, nil
+}
+
+// Struct for JSON patch operations
+type JSONPatch struct {
+	OP    string      `json:"op,omitempty"`
+	Path  string      `json:"path,omitempty"`
+	Value interface{} `json:"value"`
+}
+
+// removeTaintInBackground is a goroutine that retries removeNotReadyTaint with exponential backoff
+func removeTaintInBackground(k8sClient cloud.KubernetesAPIClient, removalFunc func(cloud.KubernetesAPIClient) error) {
+	backoffErr := wait.ExponentialBackoff(taintRemovalBackoff, func() (bool, error) {
+		err := removalFunc(k8sClient)
+		if err != nil {
+			klog.ErrorS(err, "Unexpected failure when attempting to remove node taint(s)")
+			return false, nil
+		}
+		return true, nil
+	})
+
+	if backoffErr != nil {
+		klog.ErrorS(backoffErr, "Retries exhausted, giving up attempting to remove node taint(s)")
+	}
+}
+
+// removeNotReadyTaint removes the taint fsx.csi.aws.com/agent-not-ready from the local node
+// This taint can be optionally applied by users to prevent startup race conditions such as
+// https://github.com/kubernetes/kubernetes/issues/95911
+func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
+	nodeName := os.Getenv("CSI_NODE_NAME")
+	if nodeName == "" {
+		klog.V(4).InfoS("CSI_NODE_NAME missing, skipping taint removal")
+		return nil
+	}
+
+	clientset, err := k8sClient()
+	if err != nil {
+		klog.V(4).InfoS("Failed to setup k8s client, skipping taint removal")
+		return nil
+	}
+
+	node, err := clientset.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	var taintsToKeep []corev1.Taint
+	for _, taint := range node.Spec.Taints {
+		if taint.Key != AgentNotReadyNodeTaintKey {
+			taintsToKeep = append(taintsToKeep, taint)
+		} else {
+			klog.V(4).InfoS("Queued taint for removal", "key", taint.Key, "effect", taint.Effect)
+		}
+	}
+
+	if len(taintsToKeep) == len(node.Spec.Taints) {
+		klog.V(4).InfoS("No taints to remove on node, skipping taint removal")
+		return nil
+	}
+
+	patchRemoveTaints := []JSONPatch{
+		{
+			OP:    "test",
+			Path:  "/spec/taints",
+			Value: node.Spec.Taints,
+		},
+		{
+			OP:    "replace",
+			Path:  "/spec/taints",
+			Value: taintsToKeep,
+		},
+	}
+
+	patch, err := json.Marshal(patchRemoveTaints)
+	if err != nil {
+		return err
+	}
+
+	_, err = clientset.CoreV1().Nodes().Patch(context.Background(), nodeName, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return err
+	}
+	klog.InfoS("Removed taint(s) from local node", "node", nodeName)
+	return nil
 }

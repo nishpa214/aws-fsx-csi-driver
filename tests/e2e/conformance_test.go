@@ -18,14 +18,14 @@ import (
 	"context"
 	"fmt"
 
-	fsx "github.com/kubernetes-sigs/aws-fsx-csi-driver/pkg/cloud"
-	fsxcsidriver "github.com/kubernetes-sigs/aws-fsx-csi-driver/pkg/driver"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/test/e2e/framework"
-	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
+	storageframework "k8s.io/kubernetes/test/e2e/storage/framework"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
+	fsx "sigs.k8s.io/aws-fsx-csi-driver/pkg/cloud"
+	fsxcsidriver "sigs.k8s.io/aws-fsx-csi-driver/pkg/driver"
 )
 
 type fsxVolume struct {
@@ -34,8 +34,7 @@ type fsxVolume struct {
 	dnsName      string
 }
 
-func (v *fsxVolume) DeleteVolume() {
-	ctx := context.Background()
+func (v *fsxVolume) DeleteVolume(ctx context.Context) {
 	err := v.c.DeleteFileSystem(ctx, v.fileSystemId)
 	if err != nil {
 		Fail(fmt.Sprintf("failed to delete filesystem %s", err))
@@ -46,46 +45,42 @@ type fsxDriver struct {
 	driverName string
 }
 
-var _ testsuites.TestDriver = &fsxDriver{}
-var _ testsuites.PreprovisionedPVTestDriver = &fsxDriver{}
+var _ storageframework.TestDriver = &fsxDriver{}
+var _ storageframework.PreprovisionedPVTestDriver = &fsxDriver{}
 
-func InitFSxCSIDriver() testsuites.TestDriver {
+func InitFSxCSIDriver() storageframework.TestDriver {
 	return &fsxDriver{
 		driverName: fsxcsidriver.DriverName,
 	}
 }
 
-func (e *fsxDriver) GetDriverInfo() *testsuites.DriverInfo {
-	return &testsuites.DriverInfo{
+func (e *fsxDriver) GetDriverInfo() *storageframework.DriverInfo {
+	return &storageframework.DriverInfo{
 		Name:                 e.driverName,
 		SupportedFsType:      sets.NewString(""),
 		SupportedMountOption: sets.NewString("flock", "ro"),
-		Capabilities: map[testsuites.Capability]bool{
-			testsuites.CapPersistence: true,
-			testsuites.CapExec:        true,
-			testsuites.CapMultiPODs:   true,
-			testsuites.CapRWX:         true,
+		Capabilities: map[storageframework.Capability]bool{
+			storageframework.CapPersistence: true,
+			storageframework.CapExec:        true,
+			storageframework.CapMultiPODs:   true,
+			storageframework.CapRWX:         true,
 		},
 	}
 }
 
-func (e *fsxDriver) SkipUnsupportedTest(testpatterns.TestPattern) {}
+// SkipUnsupportedTest returns the reason to skip a pattern, or an empty string
+// to run it. No pattern is skipped for this driver.
+func (e *fsxDriver) SkipUnsupportedTest(storageframework.TestPattern) string { return "" }
 
-func (e *fsxDriver) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
-	By("PrepareTest")
-	cancelPodLogs := testsuites.StartPodLogs(f)
-
-	return &testsuites.PerTestConfig{
-			Driver:    e,
-			Prefix:    "fsx",
-			Framework: f,
-		}, func() {
-			By("Cleaning up FSx CSI driver")
-			cancelPodLogs()
-		}
+func (e *fsxDriver) PrepareTest(ctx context.Context, f *framework.Framework) *storageframework.PerTestConfig {
+	return &storageframework.PerTestConfig{
+		Driver:    e,
+		Prefix:    "fsx",
+		Framework: f,
+	}
 }
 
-func (e *fsxDriver) CreateVolume(config *testsuites.PerTestConfig, volType testpatterns.TestVolType) testsuites.TestVolume {
+func (e *fsxDriver) CreateVolume(ctx context.Context, config *storageframework.PerTestConfig, volType storageframework.TestVolType) storageframework.TestVolume {
 	c := NewCloud(*region)
 	instance, err := c.getNodeInstance(*clusterName)
 	if err != nil {
@@ -94,11 +89,11 @@ func (e *fsxDriver) CreateVolume(config *testsuites.PerTestConfig, volType testp
 	securityGroupIds := getSecurityGroupIds(instance)
 	subnetId := *instance.SubnetId
 
-	ctx := context.Background()
 	options := &fsx.FileSystemOptions{
-		CapacityGiB:      3600,
-		SubnetId:         subnetId,
-		SecurityGroupIds: securityGroupIds,
+		CapacityGiB:           3600,
+		SubnetId:              subnetId,
+		SecurityGroupIds:      securityGroupIds,
+		FileSystemTypeVersion: "2.15",
 	}
 	ns := config.Framework.Namespace.Name
 	volumeName := fmt.Sprintf("fsx-e2e-test-volume-%s", ns)
@@ -119,7 +114,7 @@ func (e *fsxDriver) CreateVolume(config *testsuites.PerTestConfig, volType testp
 	}
 }
 
-func (e *fsxDriver) GetPersistentVolumeSource(readOnly bool, fsType string, volume testsuites.TestVolume) (*v1.PersistentVolumeSource, *v1.VolumeNodeAffinity) {
+func (e *fsxDriver) GetPersistentVolumeSource(readOnly bool, fsType string, volume storageframework.TestVolume) (*v1.PersistentVolumeSource, *v1.VolumeNodeAffinity) {
 	v := volume.(*fsxVolume)
 	pvSource := v1.PersistentVolumeSource{
 		CSI: &v1.CSIPersistentVolumeSource{
@@ -168,19 +163,23 @@ func (e *fsxDriver) GetPersistentVolumeSource(readOnly bool, fsType string, volu
 //}
 
 // List of testSuites to be executed in below loop
-var csiTestSuites = []func() testsuites.TestSuite{
+var csiTestSuites = []func() storageframework.TestSuite{
 	testsuites.InitVolumesTestSuite,
 	testsuites.InitVolumeIOTestSuite,
 	testsuites.InitVolumeModeTestSuite,
 	testsuites.InitSubPathTestSuite,
 	testsuites.InitProvisioningTestSuite,
 	//testsuites.InitSnapshottableTestSuite,
+	testsuites.InitVolumeExpandTestSuite,
 	testsuites.InitMultiVolumeTestSuite,
 }
 
 var _ = Describe("FSx CSI Driver Conformance", func() {
 	driver := InitFSxCSIDriver()
-	Context(testsuites.GetDriverNameWithFeatureTags(driver), func() {
-		testsuites.DefineTestSuite(driver, csiTestSuites)
+
+	args := storageframework.GetDriverNameWithFeatureTags(driver)
+	args = append(args, func() {
+		storageframework.DefineTestSuites(driver, csiTestSuites)
 	})
+	framework.Context(args...)
 })

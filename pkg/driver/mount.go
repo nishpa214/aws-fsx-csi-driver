@@ -17,25 +17,31 @@ limitations under the License.
 package driver
 
 import (
+	"fmt"
+	"k8s.io/mount-utils"
 	"os"
-
-	"k8s.io/utils/mount"
+	"time"
 )
 
 // Mounter is an interface for mount operations
 type Mounter interface {
 	mount.Interface
+	IsCorruptedMnt(err error) bool
+	PathExists(path string) (bool, error)
 	MakeDir(pathname string) error
+	// UnmountWithForce unmounts target, escalating to a forced unmount if the
+	// normal unmount has not returned within umountTimeout.
+	UnmountWithForce(target string, umountTimeout time.Duration) error
 }
 
 type NodeMounter struct {
 	mount.Interface
 }
 
-func newNodeMounter() Mounter {
+func newNodeMounter() (Mounter, error) {
 	return &NodeMounter{
 		Interface: mount.New(""),
-	}
+	}, nil
 }
 
 func (m *NodeMounter) MakeDir(pathname string) error {
@@ -46,4 +52,30 @@ func (m *NodeMounter) MakeDir(pathname string) error {
 		}
 	}
 	return nil
+}
+
+// IsCorruptedMnt return true if err is about corrupted mount point
+func (m *NodeMounter) IsCorruptedMnt(err error) bool {
+	return mount.IsCorruptedMnt(err)
+}
+
+// UnmountWithForce unmounts given target but will retry unmounting with force
+// option after given timeout. Embedding mount.Interface only promotes the
+// methods declared on that interface, not the extra methods of the concrete
+// mounter it wraps, so this delegates explicitly.
+func (m *NodeMounter) UnmountWithForce(target string, umountTimeout time.Duration) error {
+	forceUnmounter, ok := m.Interface.(mount.MounterForceUnmounter)
+	if !ok {
+		return fmt.Errorf("mounter does not support forced unmount")
+	}
+	return forceUnmounter.UnmountWithForce(target, umountTimeout)
+}
+
+func (m *NodeMounter) PathExists(path string) (bool, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
 }

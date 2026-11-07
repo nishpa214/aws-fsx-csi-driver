@@ -1,4 +1,222 @@
+# v1.11.0
+* Focus e2e suite on FSx specs only ([#9761b70c](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/9761b70c), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+* Make priorityClassName configurable for controller and node pods ([#8d2dd9a0](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/8d2dd9a0), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+* Go Dependency Update and Bump Up Sidecar Image ([#ed0ddbc0](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/ed0ddbc0), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+* Add MichaelKwok1998 to Owners ([#6e296dce](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/6e296dce), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+* Add Manual Trigger to Helm-Release ([#bba1e7d6](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/bba1e7d6), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+
+# v1.10.0
+* Use idempotency token + FS cache for createVolume ([#b0acfd53](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/b0acfd53), [@khoang98](https://github.com/khoang98))
+* Add Forceful unmount feature ([#d98bfede](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/d98bfede), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+* Applied Minimum Forceful Unmount Timeout Validation and Adjust Polling Period ([#f3ddd581](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/f3ddd581), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+* Add support for FSx Lustre CSI Driver metrics ([#2f1b8e4d](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/2f1b8e4d), [@vardaro](https://github.com/vardaro))
+* Adjust log level of non-throttle API errors, add a WriteTimeout for writes ([#b7e0f6bd](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/b7e0f6bd), [@vardaro](https://github.com/vardaro))
+* Disable volume-in-use pod informer in csi-resizer ([#ccdeab04](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/ccdeab04), [@siddharthsalot](https://github.com/siddharthsalot))
+* Add pre-e2e cleanup of stranded FSx Lustre filesystems ([#bd24e3df](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/bd24e3df), [@khoang98](https://github.com/khoang98))
+* Go Dependency update ([#90e58a55](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/90e58a55), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+* Bump Up Sidecar Image ([#16526b37](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/16526b37), [@MichaelKwok1998](https://github.com/MichaelKwok1998))
+
+# v1.9.0
+* Bump up Chart Version ([#8ab53c91](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/8ab53c91), [@Trickybrain](https://github.com/Trickybrain))
+* Bump up kubeVersion ([#961b67cf](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/961b67cf), [@Trickybrain](https://github.com/Trickybrain))
+* Update ECR Repo ([#b398dd43](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/b398dd43), [@Trickybrain](https://github.com/Trickybrain))
+* Configurable kubeletPath for fsx-csi-node DaemonSet ([#43d67995](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/43d67995), [@vardaro](https://github.com/vardaro))
+* Updating the go version and its dependency ([#ea19fdaf](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/ea19fdaf), [@Trickybrain](https://github.com/Trickybrain))
+
+# v1.8.0
+* Bump dependencies for v1.8.0 ([#a9c70802](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/a9c70802), [@Trickybrain](https://github.com/Trickybrain))
+* fix: initialize volumeCache in cloud tests to avoid nil map panic ([#b10824ad](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/b10824ad), [@nholguin (aider)](https://github.com/nholguin (aider)))
+* feat: add background FSx filesystem poller and cache ([#a2da25f8](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/a2da25f8), [@nholguin (aider)](https://github.com/nholguin (aider)))
+
+# v1.7.0
+* Bump dependencies for v1.7.0 ([#9f5ebc7f](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/9f5ebc7f), [@Trickybrain](https://github.com/Trickybrain))
+* ensure helm installation directory exists and use correct working directory ([#3e0617be](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/3e0617be), [@Trickybrain](https://github.com/Trickybrain))
+* Add example for EFA configuration ([#cf178598](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/cf178598), [@Kaitlin Hoang](https://github.com/Kaitlin Hoang))
+* Remove hybrid node exclusions ([#35eceaa4](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/35eceaa4), [@Trickybrain](https://github.com/Trickybrain))
+* updating container registry configuration across all containers ([#da9ff6b5](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/da9ff6b5), [@Trickybrain](https://github.com/Trickybrain))
+* Fix instance ID and region for EKS hybrid node ([#5348b080](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/5348b080), [@junpengdev](https://github.com/junpengdev))
+
+# v1.6.0
+* Allow the timeout of the CSI driver to be set ([#fd9e97c0](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/fd9e97c0), [@trickybrain](https://github.com/trickybrain))
+* Add podLabels parameter ([#94da9385](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/94da9385), [@trickybrain](https://github.com/trickybrain))
+* Update dependencies and implement idempotency changes ([#4b3abe29](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/4b3abe29), [@trickybrain](https://github.com/trickybrain))
+* Add support for --extra-tags to Helm chart ([#e302bc4e](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/e302bc4e), [@Eric Bailey](https://github.com/Eric Bailey))
+* Clean up whitespace in Helm chart values ([#f8e9a864](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/commit/f8e9a864), [@Eric Bailey](https://github.com/Eric Bailey))
+
+# v1.5.0
+
+### Bug fixes
+* Update e2e test dependencies - Kubernetes, Ginkgo, pinned AMI, eksctl ([#441](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/441), [@nppietra](https://github.com/nppietra))
+* Expose AWS_REGION on the node ([#430](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/428), [@olemarkus](https://github.com/olemarkus))
+
+### Improvements
+* Add prestop hook for graceful termination ([#428](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/428), [@kuba-wolf](https://github.com/kuba-wolf))
+* Add Affinity to Controller and Node in the Helm Chart ([#444](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/444), [@Trickybrain](https://github.com/Trickybrain))
+* Add Security Context in the Helm Chart ([#444](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/444), [@Trickybrain](https://github.com/Trickybrain))
+* Add PodDisruptionBudget ([#444](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/444), [@Trickybrain](https://github.com/Trickybrain))
+* Add more flexibility in specifying where to pull the container image from ([#444](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/444), [@Trickybrain](https://github.com/Trickybrain))
+
+# v1.4.0
+
+### Bug fixes
+* Handle empty and misconfigured extraTags in controller ([#409](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/409), [@kuba-wolf](https://github.com/kuba-wolf))
+
+### Improvements
+* Bump dependencies for v1.4.0 ([#417](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/417), [@kuba-wolf](https://github.com/kuba-wolf))
+* Bump sidecar images for v1.4.0([#418](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/418), [@kuba-wolf](https://github.com/kuba-wolf))
+
+# v1.3.0
+
+### Notable Changes
+* Add dynamic provisioning support for metadata configuration and efa ([#402](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/402), [@jpayvazian](https://github.com/jpayvazian))
+
+### Bug fixes
+* Pin to latest AL2 5.10 kernel AMI for e2e ([#381](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/381), [@kuba-wolf](https://github.com/kuba-wolf))
+* Add permissions to release job and update Chart Releaser ([#391](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/391), [@toneill818](https://github.com/toneill818))
+* Docs: Update Recommended Instance Profile to include fsx:UpdateFileSystem ([#394](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/394), [@kamirendawkins](https://github.com/kamirendawkins))
+
+### Improvements
+* Add Affinity to DaemonSet ([#377](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/377), [@karaktaka](https://github.com/karaktaka))
+* Migrate to aws sdk v2 ([#397](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/397), [@michael-diggin](https://github.com/michael-diggin))
+* Sanitize CSI request logs ([#404](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/404), [@jpayvazian](https://github.com/jpayvazian))
+* Bump dependencies and sidecar images for v1.3.0 ([#403](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/403), [#405](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/405), [@jpayvazian](https://github.com/jpayvazian))
+
+# v1.2.0
+
+### Bug fixes
+*  Fix taint removal retry for non-swallowed errors ([#373](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/373), [@kuba-wolf](https://github.com/kuba-wolf))
+
+### Improvements
+* Add retry and background run to node taint removal ([#370](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/370), [@kuba-wolf](https://github.com/kuba-wolf))
+* Bump dependencies for v1.2.0 ([#374](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/374), [@kuba-wolf](https://github.com/kuba-wolf))
+
+# v1.1.0
+
+### Bug fixes
+* Change node-level idempotency to use volume-target ([#360](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/360), [@kuba-wolf](https://github.com/kuba-wolf))
+
+### Improvements
+* Only trigger container images wf on v* tag ([#345](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/345), [@kuba-wolf](https://github.com/kuba-wolf))
+* Upgrade k8s and eksctl in testing ([#347](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/347), [@kuba-wolf](https://github.com/kuba-wolf))
+* Move to new s3 bucket ([#354](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/354), [@kuba-wolf](https://github.com/kuba-wolf))
+* Bump dependencies for v1.1.0 ([#361](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/361), [@kuba-wolf](https://github.com/kuba-wolf))
+* Don't mark helm chart release as latest & Show latest release badge in README ([#362](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/362), [@kuba-wolf](https://github.com/kuba-wolf))
+
+# v1.0.0
+## Notable Changes
+* Substantially reduced driver dependencies ([#318](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/318), [@kuba-wolf](https://github.com/kuba-wolf))
+
+### Improvements
+* Added arch prefix to images ([#318](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/318), [@kuba-wolf](https://github.com/kuba-wolf))
+* Update go version, dependencies, and bump sidecars ([#338](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/338), [@kuba-wolf](https://github.com/kuba-wolf))
+* Remove ebs references from e2e testing ([#339](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/339), [@kuba-wolf](https://github.com/kuba-wolf))
+
+### Acknowledgments
+* We would like to sincerely thank:
+  [@jaxesn](https://github.com/jaxesn)
+
+# v0.10.1
+
+### Announcement
+To improve the security of the container images, the base image will be substantially reduced in scope to only contain the necessary driver dependencies in an upcoming release.
+**The CSI driver image should only be used in the CSI driver Deployment and Daemonset pods as documented in our Helm chart and Kustomize manifests. While this change won’t negatively impact workloads that rely on volumes managed by the FSx for Lustre CSI Driver, it may break unsupported uses of the CSI driver image outside the aforementioned official deployment methods.**
+
+### Notable Changes
+* Add inflight check to node operations ([#325](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/325), [@kuba-wolf](https://github.com/kuba-wolf))
+* Allow for extra tags in controller deployment ([#331](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/331), [@kuba-wolf](https://github.com/kuba-wolf))
+* Remove hostNetwork from helm and manifests ([#332](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/332), [@kuba-wolf](https://github.com/kuba-wolf))
+
+### Bug fixes
+* Remove ErrFsExistsDiffSize error on incompatible parameter ([#322](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/322), [@kuba-wolf](https://github.com/kuba-wolf))
+
+### Improvements
+* Update log functions ([#320](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/320), [@kuba-wolf](https://github.com/kuba-wolf))
+* Bump sidecar images ([#333](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/333), [@kuba-wolf](https://github.com/kuba-wolf))
+
+# v0.10.0
+
+### Misc.
+* Have CSI driver use 2.12 Lustre client ([#293](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/293), [@kuba-wolf](https://github.com/kuba-wolf))
+* Add inflight checks to Create and Delete RPCs ([#309](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/309), [@kuba-wolf](https://github.com/kuba-wolf))
+* Modularize Node Service and Controller Service ([#309](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/309), [@kuba-wolf](https://github.com/kuba-wolf))
+* Increase MaxRetries for AWS client ([#309](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/309), [@kuba-wolf](https://github.com/kuba-wolf))
+* Implement operating modes ([#309](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/309), [@kuba-wolf](https://github.com/kuba-wolf))
+* Enable json logging ([#309](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/309), [@kuba-wolf](https://github.com/kuba-wolf))
+* Add Startup Taint Removal Feature ([#311](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/311), [@kuba-wolf](https://github.com/kuba-wolf))
+
+# v0.9.0
+
+### Misc.
+* Bump klog to klog2 ([#267](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/267), [@olemarkus](https://github.com/olemarkus))
+* Bump golang to 1.19 ([#268](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/268), [@olemarkus](https://github.com/olemarkus))
+* Check if volume is mounted before unmounting ([#274](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/274), [@khoang98](https://github.com/khoang98))
+* upgrade kubernetes dependencies to v0.22.3 ([#276](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/276), [@kuba-wolf](https://github.com/kuba-wolf))
+* Update import path to match the go module name ([#277](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/277), [@olemarkus](https://github.com/olemarkus))
+
+# v0.8.3
+* Use docker buildx 0.8.x --no-cache-filter to avoid using cached amazonlinux image ([#249](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/249), [@wongma7](https://github.com/wongma7))
+* Release 0.8.2 part 3/3 ([#251](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/251), [@amankhunt](https://github.com/amankhunt))
+* Use k8s.io/mount-utils instead of k8s.io/utils ([#254](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/254), [@khoang98](https://github.com/khoang98))
+
+# v0.8.2
+* Add Idempotent check for mounting node volume ([#246](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/246), [@amankhunt](https://github.com/amankhunt))
+
+# v0.8.1
+* Updating to latest AL2 base image.
+
+# v0.8.0
+
+### Misc.
+* Release 0.7.0 part 3/3 ([#224](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/224), [@khoang98](https://github.com/khoang98))
+* Add make all-push rule ([#228](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/228), [@wongma7](https://github.com/wongma7))
+* Release 0.7.1 part 3/3 ([#230](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/230), [@wongma7](https://github.com/wongma7))
+* Update ECR sidecars to 1-18-13 ([#231](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/231), [@wongma7](https://github.com/wongma7))
+
+# v0.7.1
+* Updating to latest AL2 base image.
+
+# v0.7.0
+
+### New features
+* Add ARM support ([#217](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/217), [@khoang98](https://github.com/khoang98))
+
+### Misc.
+* Update Doc and Support Template ([#215](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/215), [@CandiedCode](https://github.com/CandiedCode))
+* Release 0.6.0 part 3/3: merge previous parts to master ([#216](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/216), [@wongma7](https://github.com/wongma7))
+* Bump ginkgo ([#220](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/220), [@wongma7](https://github.com/wongma7))
+* Use latest buildx github action and build target platform from build platform  ([#221](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/221), [@wongma7](https://github.com/wongma7))
+
+# v0.6.0
+
+### New features
+* Add ExpandVolume (storage scaling) features, tests, and deployment artifacts ([#209](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/209), [@jmwurst](https://github.com/jmwurst))
+* Add `WeeklyMaintenanceStartTime` and `FileSystemTypeVersion` as storageclass parameters ([#210](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/210), [@jmwurst](https://github.com/jmwurst))
+
+### Misc.
+* Update Dynamic Provisioning S3 README ([#205](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/205), [@wuxingro](https://github.com/wuxingro))
+
+# v0.5.0
+
+### New features
+* Add support for Lustre compression ([#186](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/186), [@wuxingro](https://github.com/wuxingro))
+
+### Misc.
+* Post-release v0.4.0 ([#166](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/166), [@ayberk](https://github.com/ayberk))
+* Fix CI ([#172](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/172), [@wongma7](https://github.com/wongma7))
+* Add self to OWNERS ([#173](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/173), [@ayberk](https://github.com/ayberk))
+* Update README for stable release ([#177](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/177), [@dimitricole](https://github.com/dimitricole))
+* Updated helm chart dns config and imagePullSecrets ([#188](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/188), [@nxf5025](https://github.com/nxf5025))
+* go mod tidy && go mod vendor ([#192](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/192), [@wongma7](https://github.com/wongma7))
+* Document the stable kustomize overlay not dev ([#193](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/193), [@wongma7](https://github.com/wongma7))
+* Helm chart 1.0 ([#194](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/pull/194), [@wongma7](https://github.com/wongma7))
+
 # v0.4.0
+[Documentation](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/blob/v0.4.0/docs/README.md)
+
+filename  | sha512 hash
+--------- | ------------
+[v0.4.0.zip](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/archive/v0.4.0.zip) | `d8d32549cdc9e753b367b32e598f94f214db1c2d7f136b703688292daac670c8bf0aa8165775eba98cfe1beb6db725190989df4d5a38604f8046250d25ee9ef8`
+[v0.4.0.tar.gz](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/archive/v0.4.0.tar.gz) | `9f5cc40f074ceb0b5b3cd0fc32ad82728b9866b515c71068fee01732f73ddac502f77491a8f0e7f0bcbcf4ff9539f07333f3f6a18642935518ed9afa3fc6f615`
 
 ## Changelog
 See [details](https://github.com/kubernetes-sigs/aws-fsx-csi-driver/compare/v0.3.0...v0.4.0) for all the changes.

@@ -2,7 +2,11 @@
 # intellij idea
 .idea
 
+.DS_Store
 *.swp
 bin/
-vendor/
 *~
+
+# Vendor dir
+vendor/
+

@@ -17,25 +17,54 @@ limitations under the License.
 package driver
 
 import (
-	"github.com/kubernetes-sigs/aws-fsx-csi-driver/pkg/cloud"
-	"k8s.io/utils/mount"
+	"time"
+
+	"k8s.io/mount-utils"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/cloud"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/driver/internal"
 )
+
+// fakeForceMounter adds UnmountWithForce to mount.FakeMounter, which does not
+// implement mount.MounterForceUnmounter upstream. Without it, NodeMounter's
+// delegating UnmountWithForce would always fail the type assertion in tests and
+// the forced-unmount path would be untestable.
+type fakeForceMounter struct {
+	*mount.FakeMounter
+}
+
+func (m *fakeForceMounter) UnmountWithForce(target string, _ time.Duration) error {
+	return m.Unmount(target)
+}
 
 func NewFakeMounter() Mounter {
 	return &NodeMounter{
-		Interface: &mount.FakeMounter{
-			MountPoints: []mount.MountPoint{},
+		Interface: &fakeForceMounter{
+			FakeMounter: &mount.FakeMounter{
+				MountPoints: []mount.MountPoint{},
+			},
 		},
 	}
 }
 
 // NewFakeDriver creates a new mock driver used for testing
 func NewFakeDriver(endpoint string) *Driver {
-	cloud := cloud.NewFakeCloudProvider()
-	return &Driver{
+	driverOptions := DriverOptions{
 		endpoint: endpoint,
-		nodeID:   cloud.GetMetadata().GetInstanceID(),
-		cloud:    cloud,
-		mounter:  NewFakeMounter(),
+		mode:     AllMode,
 	}
+
+	driver := &Driver{
+		options: &driverOptions,
+		controllerService: controllerService{
+			cloud:         cloud.NewFakeCloudProvider(),
+			inFlight:      internal.NewInFlight(),
+			driverOptions: &driverOptions,
+		},
+		nodeService: nodeService{
+			mounter:       NewFakeMounter(),
+			inFlight:      internal.NewInFlight(),
+			driverOptions: &DriverOptions{forcefulUnmountTimeout: -1},
+		},
+	}
+	return driver
 }

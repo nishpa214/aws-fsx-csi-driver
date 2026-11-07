@@ -1,4 +1,4 @@
-# Copyright 2019 The Kubernetes Authors.
+# Copyright 2023 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.13.4-stretch as builder
+ARG AL_VERSION=al23
+FROM --platform=$BUILDPLATFORM golang:1.27.1 as builder
 WORKDIR /go/src/github.com/kubernetes-sigs/aws-fsx-csi-driver
-
-# Cache go modules
-COPY go.mod .
-COPY go.sum .
+COPY go.* .
 RUN go mod download
+COPY . .
+ARG TARGETOS
+ARG TARGETARCH
+RUN OS=$TARGETOS ARCH=$TARGETARCH make $TARGETOS/$TARGETARCH
 
-ADD . .
-RUN make
+# https://github.com/aws/eks-distro-build-tooling/blob/main/eks-distro-base/Dockerfile.minimal-base-csi-ebs#L36
+FROM public.ecr.aws/eks-distro-build-tooling/eks-distro-minimal-base-csi-ebs-builder:latest-${AL_VERSION} as rpm-installer
+ARG AL_VERSION
+# shallow install systemd and the kernel which are not needed in the final container image
+# since lustre is not run as a systemd service and the kernel module is node loaded via the container
+# to avoid pulling in a large tree of unnecessary dependencies
+RUN set -x && \
+    enable_extra lustre && \
+    clean_install "kernel systemd" true true; \
+    if [[ "${AL_VERSION}" == "al23" ]]; then \
+    clean_install lustre-client; \
+    else \
+    clean_install lustre; \
+    fi; \
+    remove_package "kernel systemd" true && \
+    cleanup "fsx-csi"
 
-FROM amazonlinux:2
-RUN yum install util-linux libyaml -y \
-    && amazon-linux-extras install -y lustre2.10
+FROM public.ecr.aws/eks-distro-build-tooling/eks-distro-minimal-base-csi-ebs:latest-${AL_VERSION} AS linux-amazon
+
+COPY --from=rpm-installer /newroot /
+
 COPY --from=builder /go/src/github.com/kubernetes-sigs/aws-fsx-csi-driver/bin/aws-fsx-csi-driver /bin/aws-fsx-csi-driver
 COPY THIRD-PARTY /
 

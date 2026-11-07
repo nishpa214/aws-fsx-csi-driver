@@ -10,11 +10,11 @@ metadata:
 spec:
   initContainers:
   - name: set-lustre-cache
-    image: amazon/aws-fsx-csi-driver:latest
+    image: amazonlinux:2
+    command: ["/bin/sh","-c"]
+    args: ["amazon-linux-extras install lustre -y && /sbin/lctl set_param llite.*.max_cached_mb=32"]
     securityContext:
       privileged: true
-    command: ["/sbin/lctl"]
-    args: ["set_param", "llite.*.max_cached_mb=32"]
   containers:
   - name: app
     image: amazonlinux:2

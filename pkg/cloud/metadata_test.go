@@ -18,125 +18,173 @@ package cloud
 
 import (
 	"fmt"
+	"os"
+
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/golang/mock/gomock"
-	"github.com/kubernetes-sigs/aws-fsx-csi-driver/pkg/cloud/mocks"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
+	"go.uber.org/mock/gomock"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
+	k8s_testing "k8s.io/client-go/testing"
+	"sigs.k8s.io/aws-fsx-csi-driver/pkg/cloud/mocks"
 )
 
-var (
-	stdInstanceID       = "instance-1"
-	stdRegion           = "instance-1"
-	stdAvailabilityZone = "az-1"
+const (
+	nodeName            = "ip-123-45-67-890.us-west-2.compute.internal"
+	stdInstanceID       = "i-abcdefgh123456789"
+	stdInstanceType     = "t2.medium"
+	stdRegion           = "us-west-2"
+	stdAvailabilityZone = "us-west-2b"
 )
 
 func TestNewMetadataService(t *testing.T) {
 	testCases := []struct {
-		name             string
-		isAvailable      bool
-		isPartial        bool
-		identityDocument ec2metadata.EC2InstanceIdentityDocument
-		err              error
+		name                             string
+		ec2MetadataClientError           error
+		clientsetReactors                func(*fake.Clientset)
+		getInstanceIdentityDocumentValue imds.InstanceIdentityDocument
+		getInstanceIdentityDocumentError error
+		invalidInstanceIdentityDocument  bool
+		expectedErr                      error
+		node                             v1.Node
+		nodeNameEnvVar                   string
 	}{
 		{
-			name:        "success: normal",
-			isAvailable: true,
-			identityDocument: ec2metadata.EC2InstanceIdentityDocument{
+			name:                   "success: normal",
+			ec2MetadataClientError: nil,
+			getInstanceIdentityDocumentValue: imds.InstanceIdentityDocument{
 				InstanceID:       stdInstanceID,
+				InstanceType:     stdInstanceType,
 				Region:           stdRegion,
 				AvailabilityZone: stdAvailabilityZone,
 			},
-			err: nil,
+			expectedErr: nil,
 		},
+		// TODO: Once topology is implemented, add test cases for kubernetes metadata
 		{
-			name:        "fail: metadata not available",
-			isAvailable: false,
-			identityDocument: ec2metadata.EC2InstanceIdentityDocument{
-				InstanceID:       stdInstanceID,
-				Region:           stdRegion,
-				AvailabilityZone: stdAvailabilityZone,
+			name:                   "failure: metadata not available, k8s client error",
+			ec2MetadataClientError: fmt.Errorf("foo"),
+			clientsetReactors: func(clientset *fake.Clientset) {
+				clientset.PrependReactor("get", "*", func(action k8s_testing.Action) (handled bool, ret runtime.Object, err error) {
+					return true, nil, fmt.Errorf("client failure")
+				})
 			},
-			err: nil,
+			expectedErr:    fmt.Errorf("error getting Node %s: client failure", nodeName),
+			nodeNameEnvVar: nodeName,
 		},
 		{
-			name:        "fail: GetInstanceIdentityDocument returned error",
-			isAvailable: true,
-			identityDocument: ec2metadata.EC2InstanceIdentityDocument{
-				InstanceID:       stdInstanceID,
-				Region:           stdRegion,
-				AvailabilityZone: stdAvailabilityZone,
+			name:                   "failure: metadata not available, node name env var not set",
+			ec2MetadataClientError: fmt.Errorf("foo"),
+			expectedErr:            fmt.Errorf("CSI_NODE_NAME env var not set"),
+			nodeNameEnvVar:         "",
+		},
+		{
+			name:                             "fail: GetInstanceIdentityDocument returned error, k8s client error",
+			ec2MetadataClientError:           nil,
+			getInstanceIdentityDocumentError: fmt.Errorf("foo"),
+			clientsetReactors: func(clientset *fake.Clientset) {
+				clientset.PrependReactor("get", "*", func(action k8s_testing.Action) (handled bool, ret runtime.Object, err error) {
+					return true, nil, fmt.Errorf("client failure")
+				})
 			},
-			err: fmt.Errorf(""),
+			expectedErr:    fmt.Errorf("error getting Node %s: client failure", nodeName),
+			nodeNameEnvVar: nodeName,
 		},
 		{
-			name:        "fail: GetInstanceIdentityDocument returned empty instance",
-			isAvailable: true,
-			isPartial:   true,
-			identityDocument: ec2metadata.EC2InstanceIdentityDocument{
+			name:                   "fail: GetInstanceIdentityDocument returned empty instance, k8s client error",
+			ec2MetadataClientError: nil,
+			getInstanceIdentityDocumentValue: imds.InstanceIdentityDocument{
 				InstanceID:       "",
+				InstanceType:     stdInstanceType,
 				Region:           stdRegion,
 				AvailabilityZone: stdAvailabilityZone,
 			},
-			err: nil,
-		},
-		{
-			name:        "fail: GetInstanceIdentityDocument returned empty region",
-			isAvailable: true,
-			isPartial:   true,
-			identityDocument: ec2metadata.EC2InstanceIdentityDocument{
-				InstanceID:       stdInstanceID,
-				Region:           "",
-				AvailabilityZone: stdAvailabilityZone,
+			invalidInstanceIdentityDocument: true,
+			clientsetReactors: func(clientset *fake.Clientset) {
+				clientset.PrependReactor("get", "*", func(action k8s_testing.Action) (handled bool, ret runtime.Object, err error) {
+					return true, nil, fmt.Errorf("client failure")
+				})
 			},
-			err: nil,
+			expectedErr:    fmt.Errorf("error getting Node %s: client failure", nodeName),
+			nodeNameEnvVar: nodeName,
 		},
 		{
-			name:        "fail: GetInstanceIdentityDocument returned empty az",
-			isAvailable: true,
-			isPartial:   true,
-			identityDocument: ec2metadata.EC2InstanceIdentityDocument{
+			name:                   "fail: GetInstanceIdentityDocument returned empty az, k8s client error",
+			ec2MetadataClientError: nil,
+			getInstanceIdentityDocumentValue: imds.InstanceIdentityDocument{
 				InstanceID:       stdInstanceID,
+				InstanceType:     stdInstanceType,
 				Region:           stdRegion,
 				AvailabilityZone: "",
 			},
-			err: nil,
+			invalidInstanceIdentityDocument: true,
+			clientsetReactors: func(clientset *fake.Clientset) {
+				clientset.PrependReactor("get", "*", func(action k8s_testing.Action) (handled bool, ret runtime.Object, err error) {
+					return true, nil, fmt.Errorf("client failure")
+				})
+			},
+			expectedErr:    fmt.Errorf("error getting Node %s: client failure", nodeName),
+			nodeNameEnvVar: nodeName,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			clientset := fake.NewSimpleClientset(&tc.node)
+			clientsetInitialized := false
+			if tc.clientsetReactors != nil {
+				tc.clientsetReactors(clientset)
+			}
+
 			mockCtrl := gomock.NewController(t)
 			mockEC2Metadata := mocks.NewMockEC2Metadata(mockCtrl)
 
-			mockEC2Metadata.EXPECT().Available().Return(tc.isAvailable)
-			if tc.isAvailable {
-				mockEC2Metadata.EXPECT().GetInstanceIdentityDocument().Return(tc.identityDocument, tc.err)
+			ec2MetadataClient := func() (EC2Metadata, error) { return mockEC2Metadata, tc.ec2MetadataClientError }
+			k8sAPIClient := func() (kubernetes.Interface, error) { clientsetInitialized = true; return clientset, nil }
+
+			if tc.ec2MetadataClientError == nil {
+				returnValue := &imds.GetInstanceIdentityDocumentOutput{InstanceIdentityDocument: tc.getInstanceIdentityDocumentValue}
+				mockEC2Metadata.EXPECT().GetInstanceIdentityDocument(gomock.Any(), nil).Return(returnValue, tc.getInstanceIdentityDocumentError)
+
+				if clientsetInitialized == true {
+					t.Errorf("kubernetes client was unexpectedly initialized when metadata is available!")
+					if len(clientset.Actions()) > 0 {
+						t.Errorf("kubernetes client was unexpectedly called! %v", clientset.Actions())
+					}
+				}
 			}
 
-			m, err := NewMetadataService(mockEC2Metadata)
-			if tc.isAvailable && tc.err == nil && !tc.isPartial {
-				if err != nil {
-					t.Fatalf("NewMetadataService() failed: expected no error, got %v", err)
-				}
+			os.Setenv("CSI_NODE_NAME", tc.nodeNameEnvVar)
+			var m MetadataService
+			var err error
+			m, err = NewMetadataService(ec2MetadataClient, k8sAPIClient, stdRegion)
 
-				if m.GetInstanceID() != tc.identityDocument.InstanceID {
-					t.Fatalf("GetInstanceID() failed: expected %v, got %v", tc.identityDocument.InstanceID, m.GetInstanceID())
-				}
-
-				if m.GetRegion() != tc.identityDocument.Region {
-					t.Fatalf("GetRegion() failed: expected %v, got %v", tc.identityDocument.Region, m.GetRegion())
-				}
-
-				if m.GetAvailabilityZone() != tc.identityDocument.AvailabilityZone {
-					t.Fatalf("GetAvailabilityZone() failed: expected %v, got %v", tc.identityDocument.AvailabilityZone, m.GetAvailabilityZone())
+			if err != nil {
+				if tc.expectedErr == nil {
+					t.Errorf("got error %q, expected no error", err)
+				} else if err.Error() != tc.expectedErr.Error() {
+					t.Errorf("got error %q, expected %q", err, tc.expectedErr)
 				}
 			} else {
-				if err == nil {
-					t.Fatal("NewMetadataService() failed: expected error when GetInstanceIdentityDocument returns partial data, got nothing")
+				if m == nil {
+					t.Fatalf("metadataService is unexpectedly nil!")
+				}
+				if m.GetInstanceID() != stdInstanceID {
+					t.Errorf("NewMetadataService() failed: got wrong instance ID %v, expected %v", m.GetInstanceID(), stdInstanceID)
+				}
+				if m.GetInstanceType() != stdInstanceType {
+					t.Errorf("GetInstanceType() failed: got wrong instance type %v, expected %v", m.GetInstanceType(), stdInstanceType)
+				}
+				if m.GetRegion() != stdRegion {
+					t.Errorf("NewMetadataService() failed: got wrong region %v, expected %v", m.GetRegion(), stdRegion)
+				}
+				if m.GetAvailabilityZone() != stdAvailabilityZone {
+					t.Errorf("NewMetadataService() failed: got wrong AZ %v, expected %v", m.GetAvailabilityZone(), stdAvailabilityZone)
 				}
 			}
-
 			mockCtrl.Finish()
 		})
 	}
